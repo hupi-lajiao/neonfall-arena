@@ -22,6 +22,37 @@ export const BULLET = {
   spreadStep: 0.11,        // radians between projectiles when multishot > 1
 };
 
+// Enemy projectiles (fired by shooters). Slower than the player's shots and
+// bright pink, so they read as danger rather than as your own fire.
+export const E_BULLET = {
+  speed: 305,
+  radius: 5,
+  life: 3.4,
+  damage: 10,
+};
+
+// Difficulty presets, chosen on the title screen. spawnScale multiplies the
+// spawn *interval* (below 1 = denser waves); every other scale multiplies
+// exactly what its name says. Score scale is the reward for the risk.
+export const DIFFICULTIES = {
+  easy: {
+    id: 'easy', name: '简单', desc: '敌人更弱 · 分数 ×0.8',
+    hpScale: 0.7, speedScale: 0.9, spawnScale: 1.3, countScale: 0.85,
+    damageScale: 0.75, scoreScale: 0.8,
+  },
+  normal: {
+    id: 'normal', name: '正常', desc: '标准体验 · 分数 ×1.0',
+    hpScale: 1, speedScale: 1, spawnScale: 1, countScale: 1,
+    damageScale: 1, scoreScale: 1,
+  },
+  hard: {
+    id: 'hard', name: '困难', desc: '敌人更强更密 · 分数 ×1.5',
+    hpScale: 1.45, speedScale: 1.12, spawnScale: 0.78, countScale: 1.25,
+    damageScale: 1.25, scoreScale: 1.5,
+  },
+};
+export const DIFFICULTY_ORDER = ['easy', 'normal', 'hard'];
+
 export const ENEMY_TYPES = {
   chaser: { // triangle: steady seeker, the bread and butter of every wave
     radius: 15, hp: 3, speed: 118, damage: 12, score: 50, xp: 1,
@@ -38,6 +69,22 @@ export const ENEMY_TYPES = {
   mini: { // small triangle spawned by a dying tank; quick and weak
     radius: 10, hp: 1, speed: 185, damage: 8, score: 25, xp: 1,
     color: '#ff6b9d', sides: 3,
+  },
+  shooter: { // hexagon: keeps its distance, strafes, and fires pink bolts
+    radius: 14, hp: 4, speed: 108, damage: 8, score: 100, xp: 2,
+    color: '#4895ef', sides: 6,
+    range: 265,              // preferred distance from the player, px
+    fireInterval: 2.3,       // seconds between shots
+    fireRange: 640,          // only opens fire inside this distance
+  },
+  bomber: { // diamond: sprints at the player, lights its fuse, explodes
+    radius: 13, hp: 2, speed: 178, damage: 10, score: 90, xp: 1,
+    color: '#ff5714', sides: 4,
+    fuseTime: 0.55,          // seconds of flashing telegraph before the blast
+    fuseRange: 74,           // lights the fuse inside this distance
+    boomRadius: 96,          // explosion radius, px
+    boomPlayerDamage: 26,
+    boomEnemyDamage: 8,      // friendly fire: the blast hurts other enemies
   },
 };
 
@@ -66,6 +113,28 @@ export const WAVES = {
   hpScale: (n) => 1 + (n - 1) * 0.14,
 };
 
+// Item drops: killed enemies sometimes leave a pickup behind. `weights` is
+// the relative drop table; tanks roll on the richer `tankChance` instead.
+export const ITEMS = {
+  dropChance: 0.085,
+  tankChance: 0.3,
+  life: 9,                 // seconds before a drop fades away
+  blinkAt: 2.5,            // starts blinking when this much life remains
+  radius: 13,
+  weights: [['medkit', 34], ['bomb', 22], ['magnet', 22], ['rapid', 22]],
+  medkitHeal: 30,
+  bombDamage: 12,          // to every enemy on the field (boss takes 40%)
+  rapidMult: 1.6,          // fire-rate multiplier while the buff runs
+  rapidTime: 8,            // seconds the rapid-fire buff lasts
+};
+
+export const ITEM_DEFS = {
+  medkit: { color: '#2ee66b', label: '医疗包' },
+  bomb:   { color: '#ffb703', label: '炸弹' },
+  magnet: { color: '#b517f5', label: '磁力核心' },
+  rapid:  { color: '#ffe600', label: '急速核心' },
+};
+
 // XP needed to go from level L to L + 1.
 export const xpForLevel = (level) => 6 + (level - 1) * 5;
 
@@ -78,7 +147,9 @@ export const COMBO = {
 export const CAPS = {
   enemies: 130,
   bullets: 320,
-  particles: 420,
+  ebullets: 140,
+  items: 24,
+  particles: 560,
   texts: 32,
   shards: 220,
 };

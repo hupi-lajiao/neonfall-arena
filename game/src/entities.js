@@ -1,7 +1,7 @@
 // NEONFALL ARENA — entity factories and spawn helpers. Entities are plain
 // objects kept in arrays on the game state; this module only creates them.
 
-import { PLAYER, BULLET, ENEMY_TYPES, BOSS, CAPS, TAU } from './config.js';
+import { PLAYER, BULLET, E_BULLET, ENEMY_TYPES, BOSS, ITEMS, CAPS, TAU } from './config.js';
 
 export function createPlayer(x, y) {
   return {
@@ -14,8 +14,13 @@ export function createPlayer(x, y) {
     damage: PLAYER.baseDamage,
     projectiles: 1,
     pierce: 0,
+    bounce: 0,           // wall bounces per bullet (upgrade)
+    critChance: 0,       // chance per hit to deal triple damage (upgrade)
+    xpGain: 1,           // XP multiplier (upgrade)
+    regen: 0,            // HP per second (upgrade)
     magnet: PLAYER.baseMagnet,
     fireTimer: 0,        // seconds until the next shot is allowed
+    rapidTimer: 0,       // seconds left on the rapid-fire item buff
     flash: 0,            // muzzle-flash timer
     invuln: 0,           // seconds of post-hit invulnerability left
     aim: 0,              // radians, toward the mouse
@@ -29,27 +34,38 @@ export function createPlayer(x, y) {
   };
 }
 
-export function createBullet(x, y, angle, damage, pierce) {
+export function createBullet(x, y, angle, damage, pierce, bounce = 0) {
   return {
     x, y,
     vx: Math.cos(angle) * BULLET.speed,
     vy: Math.sin(angle) * BULLET.speed,
     radius: BULLET.radius,
-    damage, pierce,
+    damage, pierce, bounce,
     life: BULLET.life,
     hitSet: null,        // lazily-created Set of enemies this bullet already hit
   };
 }
 
-// A regular enemy of the given type, with wave HP scaling applied.
-export function createEnemy(type, x, y, hpScale = 1) {
+export function createEnemyBullet(x, y, angle, damage = E_BULLET.damage) {
+  return {
+    x, y,
+    vx: Math.cos(angle) * E_BULLET.speed,
+    vy: Math.sin(angle) * E_BULLET.speed,
+    radius: E_BULLET.radius,
+    damage,
+    life: E_BULLET.life,
+  };
+}
+
+// A regular enemy of the given type, with wave/difficulty scaling applied.
+export function createEnemy(type, x, y, hpScale = 1, speedScale = 1) {
   const def = ENEMY_TYPES[type];
   const hp = Math.max(1, Math.round(def.hp * hpScale));
   return {
     type, x, y, vx: 0, vy: 0,
     radius: def.radius,
     hp, maxHp: hp,
-    speed: def.speed * (0.9 + Math.random() * 0.2),
+    speed: def.speed * speedScale * (0.9 + Math.random() * 0.2),
     damage: def.damage,
     score: def.score,
     xp: def.xp,
@@ -60,6 +76,11 @@ export function createEnemy(type, x, y, hpScale = 1) {
     phase: Math.random() * TAU,   // sine phase for weavers
     flash: 0,                      // hit-flash timer
     knockX: 0, knockY: 0,          // knockback velocity, decays over time
+    aim: 0,                        // shooters: current aim at the player
+    fireTimer: 0.6 + Math.random() * 0.9,  // shooters: seconds to first shot
+    strafe: Math.random() < 0.5 ? -1 : 1,  // shooters: strafe direction
+    fuse: -1,                      // bombers: -1 unlit, otherwise seconds left
+    exploded: false,               // bombers: went off by themselves
     isBoss: false,
   };
 }
@@ -80,6 +101,7 @@ export function createBoss(x, y) {
     phase: 0,
     flash: 0,
     knockX: 0, knockY: 0,
+    aim: 0, fireTimer: 0, strafe: 1, fuse: -1, exploded: false,
     isBoss: true,
     minionTimer: BOSS.minionInterval,
   };
@@ -95,15 +117,45 @@ export function createShard(x, y, value = 1) {
     radius: 5,
     value,
     bob: Math.random() * TAU,
+    vacuum: false,       // set by the magnet item: fly to the player from anywhere
   };
+}
+
+// A dropped item pickup. It drifts a little on spawn, then sits and pulses
+// until it is collected or its life runs out.
+export function createItem(type, x, y) {
+  const a = Math.random() * TAU;
+  const s = 26 + Math.random() * 30;
+  return {
+    type, x, y,
+    vx: Math.cos(a) * s,
+    vy: Math.sin(a) * s,
+    radius: ITEMS.radius,
+    age: 0,
+    life: ITEMS.life,
+    bob: Math.random() * TAU,
+  };
+}
+
+// Weighted pick from the ITEMS drop table.
+export function rollItemType() {
+  let total = 0;
+  for (const [, w] of ITEMS.weights) total += w;
+  let roll = Math.random() * total;
+  for (const [type, w] of ITEMS.weights) {
+    roll -= w;
+    if (roll <= 0) return type;
+  }
+  return ITEMS.weights[0][0];
 }
 
 export function createText(x, y, str, color = '#ffffff', size = 15) {
   return { x, y, str, color, size, life: 0.9, maxLife: 0.9, vy: -46 };
 }
 
-// Burst of neon sparks. `count` is clamped by the global particle cap.
-export function burst(state, x, y, color, count, speed = 260, life = 0.5, size = 3) {
+// Burst of neon sparks. `shape` is 'spark' (a square mote), 'glow' (a soft
+// round puff) — rings are made with ringFx below.
+export function burst(state, x, y, color, count, speed = 260, life = 0.5, size = 3, shape = 'spark') {
   for (let i = 0; i < count; i++) {
     if (state.particles.length >= CAPS.particles) return;
     const a = Math.random() * TAU;
@@ -115,8 +167,20 @@ export function burst(state, x, y, color, count, speed = 260, life = 0.5, size =
       vy: Math.sin(a) * s,
       life: l, maxLife: l,
       color, size: size * (0.6 + Math.random() * 0.8),
+      shape, r: 0, rv: 0,
     });
   }
+}
+
+// An expanding shockwave ring (explosions, bomb items, boss death).
+export function ringFx(state, x, y, color, maxR = 90, life = 0.4) {
+  if (state.particles.length >= CAPS.particles) return;
+  state.particles.push({
+    x, y, vx: 0, vy: 0,
+    life, maxLife: life,
+    color, size: 0,
+    shape: 'ring', r: 6, rv: (maxR - 6) / life,
+  });
 }
 
 export function addText(state, x, y, str, color, size) {
@@ -134,12 +198,13 @@ export function edgeSpawnPoint(w, h) {
   return { x: -margin, y: Math.random() * h };
 }
 
-// Which enemy types a wave draws from, weighted by repetition.
+// Which enemy types a wave draws from, weighted by repetition. Shooters
+// join on wave 3, bombers on wave 4.
 export function waveComposition(wave) {
   if (wave <= 1) return ['chaser', 'chaser', 'chaser', 'weaver'];
   if (wave === 2) return ['chaser', 'chaser', 'weaver', 'weaver', 'chaser'];
-  if (wave === 3) return ['chaser', 'weaver', 'tank', 'chaser', 'weaver', 'chaser'];
-  return ['chaser', 'weaver', 'tank', 'weaver', 'chaser', 'tank', 'chaser', 'weaver'];
+  if (wave === 3) return ['chaser', 'weaver', 'tank', 'shooter', 'chaser', 'weaver', 'chaser'];
+  return ['chaser', 'weaver', 'tank', 'shooter', 'bomber', 'weaver', 'chaser', 'tank', 'bomber', 'shooter'];
 }
 
 export function pickFrom(arr) {

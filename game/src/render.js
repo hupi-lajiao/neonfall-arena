@@ -1,11 +1,22 @@
-// NEONFALL ARENA — all drawing. The static background (starfield + perspective
-// grid) is pre-rendered to an offscreen canvas on resize; each frame then just
-// blits it and draws the live entities, HUD and menu overlays on top.
+// NEONFALL ARENA — all drawing. The static background (nebula washes +
+// starfield + perspective grid) is pre-rendered to an offscreen canvas on
+// resize; each frame then just blits it and draws the live entities, HUD
+// and menu overlays on top. All UI text is Chinese; the game's name stays
+// NEONFALL ARENA with a Chinese subtitle.
 
-import { TAU } from './config.js';
+import { TAU, ENEMY_TYPES, ITEMS, ITEM_DEFS, DIFFICULTIES, DIFFICULTY_ORDER } from './config.js';
 import { touch } from './input.js';
 
-const FONT = '"Segoe UI", system-ui, -apple-system, sans-serif';
+const FONT = '"Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif';
+
+// Soft nebula blobs laid over the deep-space base: [x, y, radius, colour].
+const NEBULA = [
+  [0.22, 0.28, 0.55, 'rgba(123, 47, 247, 0.20)'],   // violet
+  [0.80, 0.20, 0.48, 'rgba(0, 229, 255, 0.13)'],    // cyan
+  [0.68, 0.78, 0.52, 'rgba(255, 56, 96, 0.11)'],    // magenta
+  [0.12, 0.85, 0.42, 'rgba(46, 110, 255, 0.14)'],   // deep blue
+  [0.50, 0.45, 0.34, 'rgba(181, 23, 245, 0.09)'],   // faint purple heart
+];
 
 export class Renderer {
   constructor(canvas) {
@@ -33,8 +44,17 @@ export class Renderer {
     grad.addColorStop(1, '#03040a');
     c.fillStyle = grad;
     c.fillRect(0, 0, w, h);
+    // Nebula: large, soft radial washes of colour over the base.
+    for (const [fx, fy, fr, color] of NEBULA) {
+      const r = Math.max(w, h) * fr;
+      const ng = c.createRadialGradient(w * fx, h * fy, 0, w * fx, h * fy, r);
+      ng.addColorStop(0, color);
+      ng.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      c.fillStyle = ng;
+      c.fillRect(0, 0, w, h);
+    }
     // Starfield.
-    for (let i = 0; i < 170; i++) {
+    for (let i = 0; i < 190; i++) {
       const x = Math.random() * w, y = Math.random() * h;
       const r = Math.random() * 1.4 + 0.3;
       c.globalAlpha = 0.25 + Math.random() * 0.65;
@@ -84,8 +104,10 @@ export class Renderer {
     }
     ctx.drawImage(this.bg, 0, 0, w, h);
     this.drawShards(game);
+    this.drawItems(game);
     this.drawEnemies(game);
     this.drawBullets(game);
+    this.drawEBullets(game);
     if (game.mode !== 'title') this.drawPlayer(game);
     this.drawParticles(game);
     this.drawTexts(game);
@@ -95,7 +117,7 @@ export class Renderer {
     this.drawHud(game);
     if (game.mode === 'title') this.drawTitle(game);
     else if (game.mode === 'levelup') this.drawLevelUp(game);
-    else if (game.mode === 'paused') this.drawCentered(game, 'PAUSED', 'Press P or click to resume');
+    else if (game.mode === 'paused') this.drawCentered(game, '已暂停', '按 P 或点击继续');
     else if (game.mode === 'gameover') this.drawEnd(game, false);
     else if (game.mode === 'victory') this.drawEnd(game, true);
   }
@@ -128,9 +150,117 @@ export class Renderer {
     ctx.globalAlpha = 1;
   }
 
+  drawItems(game) {
+    const { ctx } = this;
+    const now = performance.now() / 1000;
+    for (const item of game.items) {
+      const def = ITEM_DEFS[item.type];
+      const remaining = item.life - item.age;
+      // Blink out in the last seconds before the drop fades.
+      let alpha = 1;
+      if (remaining < ITEMS.blinkAt) alpha = (Math.sin(now * 16) > -0.2) ? 1 : 0.2;
+      const y = item.y + Math.sin(item.bob) * 3;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      // Pulsing halo ring.
+      ctx.beginPath();
+      ctx.arc(item.x, y, item.radius + 3 + Math.sin(item.bob * 1.4) * 1.6, 0, TAU);
+      ctx.strokeStyle = def.color;
+      ctx.globalAlpha = alpha * 0.55;
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      ctx.globalAlpha = alpha;
+      // Dark disc so the icon reads against the nebula.
+      ctx.beginPath();
+      ctx.arc(item.x, y, item.radius, 0, TAU);
+      ctx.fillStyle = 'rgba(6, 8, 22, 0.88)';
+      ctx.fill();
+      ctx.strokeStyle = def.color;
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      ctx.translate(item.x, y);
+      this.drawItemIcon(item.type, def.color);
+      ctx.restore();
+      // Tiny label under the disc.
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.85;
+      ctx.fillStyle = def.color;
+      ctx.font = `10px ${FONT}`;
+      ctx.textAlign = 'center';
+      ctx.fillText(def.label, item.x, y + item.radius + 13);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  drawItemIcon(type, color) {
+    const { ctx } = this;
+    if (type === 'medkit') {
+      ctx.fillStyle = color;
+      ctx.fillRect(-7.5, -7.5, 15, 15);
+      ctx.fillStyle = '#04140a';
+      ctx.fillRect(-1.8, -5, 3.6, 10);
+      ctx.fillRect(-5, -1.8, 10, 3.6);
+    } else if (type === 'bomb') {
+      ctx.beginPath();
+      ctx.arc(0, 1.5, 7.5, 0, TAU);
+      ctx.fillStyle = '#151828';
+      ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(2, -5);
+      ctx.quadraticCurveTo(5, -9, 8, -8);
+      ctx.strokeStyle = '#ffd60a';
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+      ctx.fillStyle = '#ffd60a';
+      ctx.beginPath();
+      ctx.arc(8, -8, 1.8, 0, TAU);
+      ctx.fill();
+    } else if (type === 'magnet') {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 4.6;
+      ctx.beginPath();
+      ctx.arc(0, -1, 5.6, Math.PI, 0);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-5.6, -1); ctx.lineTo(-5.6, 6.5);
+      ctx.moveTo(5.6, -1); ctx.lineTo(5.6, 6.5);
+      ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-7.9, 4.6, 4.6, 3.4);
+      ctx.fillRect(3.3, 4.6, 4.6, 3.4);
+    } else { // rapid: a lightning bolt
+      ctx.beginPath();
+      ctx.moveTo(2.5, -9);
+      ctx.lineTo(-4, 1);
+      ctx.lineTo(-0.5, 1);
+      ctx.lineTo(-2.5, 9);
+      ctx.lineTo(4.5, -1);
+      ctx.lineTo(1, -1);
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+  }
+
   drawEnemies(game) {
     const { ctx } = this;
+    const now = performance.now() / 1000;
     for (const e of game.enemies) {
+      // A lit bomber telegraphs: flashing body plus a faint blast-radius ring.
+      if (e.type === 'bomber' && e.fuse >= 0) {
+        const def = ENEMY_TYPES.bomber;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, def.boomRadius, 0, TAU);
+        ctx.fillStyle = `rgba(255, 87, 20, ${0.05 + 0.04 * Math.sin(now * 24)})`;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 87, 20, 0.35)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
       // Wide faint stroke under a bright thin one: neon glow without shadowBlur.
       this.polygon(e.x, e.y, e.radius, e.sides, e.rot);
       ctx.strokeStyle = e.color;
@@ -140,13 +270,23 @@ export class Renderer {
       ctx.globalAlpha = 1;
       ctx.lineWidth = 2;
       ctx.stroke();
-      ctx.fillStyle = e.flash > 0 ? '#ffffff' : 'rgba(10, 10, 24, 0.72)';
+      const litFuse = e.type === 'bomber' && e.fuse >= 0 && Math.floor(now * 14) % 2 === 0;
+      ctx.fillStyle = e.flash > 0 || litFuse ? '#ffffff' : 'rgba(10, 10, 24, 0.72)';
       ctx.fill();
       // Bright core.
       ctx.beginPath();
       ctx.arc(e.x, e.y, e.radius * 0.28, 0, TAU);
-      ctx.fillStyle = e.flash > 0 ? '#ffffff' : e.color;
+      ctx.fillStyle = e.flash > 0 || litFuse ? '#ffffff' : e.color;
       ctx.fill();
+      if (e.type === 'shooter') {
+        // Barrel pointing at the player.
+        ctx.beginPath();
+        ctx.moveTo(e.x + Math.cos(e.aim) * e.radius * 0.4, e.y + Math.sin(e.aim) * e.radius * 0.4);
+        ctx.lineTo(e.x + Math.cos(e.aim) * (e.radius + 6), e.y + Math.sin(e.aim) * (e.radius + 6));
+        ctx.strokeStyle = e.color;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
       if (e.isBoss) {
         this.polygon(e.x, e.y, e.radius * 0.68, e.sides, -e.rot * 1.6);
         ctx.strokeStyle = '#ffffff';
@@ -178,6 +318,23 @@ export class Renderer {
       ctx.arc(b.x, b.y, b.radius, 0, TAU);
       ctx.fill();
     }
+  }
+
+  drawEBullets(game) {
+    const { ctx } = this;
+    for (const b of game.ebullets) {
+      ctx.globalAlpha = 0.28;
+      ctx.fillStyle = '#ff5d8f';
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.radius * 2.2, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.radius, 0, TAU);
+      ctx.fillStyle = '#ffd7e6';
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
 
   drawPlayer(game) {
@@ -237,9 +394,25 @@ export class Renderer {
   drawParticles(game) {
     const { ctx } = this;
     for (const pt of game.particles) {
-      ctx.globalAlpha = Math.max(0, pt.life / pt.maxLife);
-      ctx.fillStyle = pt.color;
-      ctx.fillRect(pt.x - pt.size / 2, pt.y - pt.size / 2, pt.size, pt.size);
+      const frac = Math.max(0, pt.life / pt.maxLife);
+      if (pt.shape === 'ring') {
+        ctx.globalAlpha = frac * 0.8;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pt.r, 0, TAU);
+        ctx.strokeStyle = pt.color;
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+      } else if (pt.shape === 'glow') {
+        ctx.globalAlpha = frac * 0.75;
+        ctx.fillStyle = pt.color;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pt.size * 1.9, 0, TAU);
+        ctx.fill();
+      } else {
+        ctx.globalAlpha = frac;
+        ctx.fillStyle = pt.color;
+        ctx.fillRect(pt.x - pt.size / 2, pt.y - pt.size / 2, pt.size, pt.size);
+      }
     }
     ctx.globalAlpha = 1;
   }
@@ -279,44 +452,55 @@ export class Renderer {
     ctx.font = `bold ${compact ? 11 : 13}px ${FONT}`;
     // HP, top-left.
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(`HP ${Math.ceil(p.hp)} / ${p.maxHp}`, left, compact ? 18 : 26);
+    ctx.fillText(`生命 ${Math.ceil(p.hp)} / ${p.maxHp}`, left, compact ? 18 : 26);
     const hpWidth = compact ? Math.min(112, this.w * 0.32) : 220;
     this.bar(left, compact ? 25 : 32, hpWidth, compact ? 8 : 13, p.hp / p.maxHp, 'rgba(255,56,96,0.25)', p.hp / p.maxHp > 0.3 ? '#2ee66b' : '#ff3860');
+    // Status lines under the HP bar: shield first, then the rapid-fire buff.
+    let statusY = compact ? 47 : 62;
     if (p.hasShield) {
       ctx.fillStyle = p.shieldReady ? '#7df9ff' : 'rgba(125,249,255,0.4)';
       ctx.font = `bold ${compact ? 9 : 12}px ${FONT}`;
-      ctx.fillText(p.shieldReady ? '◈ SHIELD UP' : '◈ SHIELD CHARGING', left, compact ? 47 : 62);
+      ctx.fillText(p.shieldReady ? '◈ 护盾就绪' : '◈ 护盾充能中', left, statusY);
+      statusY += compact ? 14 : 18;
+    }
+    if (p.rapidTimer > 0) {
+      ctx.fillStyle = '#ffe600';
+      ctx.font = `bold ${compact ? 9 : 12}px ${FONT}`;
+      ctx.fillText(`⚡ 急速射击 ${p.rapidTimer.toFixed(0)} 秒`, left, statusY);
     }
     // Wave or boss bar, top-center.
     ctx.textAlign = 'center';
     if (game.boss) {
       ctx.fillStyle = '#00e5ff';
       ctx.font = `bold ${compact ? 11 : 15}px ${FONT}`;
-      ctx.fillText('— WARDEN —', this.w / 2, compact ? 18 : 26);
+      ctx.fillText('— WARDEN · 守护者 —', this.w / 2, compact ? 18 : 26);
       const bossWidth = Math.min(compact ? this.w - 24 : 380, this.w - 24);
       this.bar(this.w / 2 - bossWidth / 2, compact ? 40 : 32, bossWidth, compact ? 8 : 12, game.boss.hp / game.boss.maxHp, 'rgba(0,229,255,0.15)', '#00e5ff');
     } else if (game.wave > 0) {
       ctx.fillStyle = '#ffffff';
       ctx.font = `bold ${compact ? 11 : 16}px ${FONT}`;
-      ctx.fillText(`WAVE ${game.wave} / 5`, this.w / 2, compact ? 18 : 30);
+      ctx.fillText(`第 ${game.wave} 波 / 共 5 波`, this.w / 2, compact ? 18 : 30);
     }
-    // Score and time, top-right.
+    // Score, time and difficulty, top-right.
     ctx.textAlign = 'right';
     ctx.fillStyle = '#ffffff';
     ctx.font = `bold ${compact ? 11 : 15}px ${FONT}`;
-    ctx.fillText(`SCORE ${game.score}`, this.w - left, compact ? 18 : 26);
+    ctx.fillText(`分数 ${game.score}`, this.w - left, compact ? 18 : 26);
     const t = game.mode === 'gameover' || game.mode === 'victory' ? game.finalTime : game.time;
     const mm = String(Math.floor(t / 60)).padStart(2, '0');
     const ss = String(Math.floor(t % 60)).padStart(2, '0');
     ctx.font = `${compact ? 10 : 13}px ${FONT}`;
     ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    ctx.fillText(`TIME ${mm}:${ss}`, this.w - left, compact ? 35 : 46);
-    // Combo, under the score.
+    ctx.fillText(`时间 ${mm}:${ss}`, this.w - left, compact ? 35 : 46);
+    ctx.font = `${compact ? 9 : 11}px ${FONT}`;
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillText(`难度：${DIFFICULTIES[game.difficulty].name}`, this.w - left, compact ? 49 : 64);
+    // Combo, under the difficulty line.
     if (game.combo.count >= 2) {
       const mult = game.multiplier().toFixed(1);
       ctx.fillStyle = '#ffe600';
       ctx.font = `bold ${compact ? 10 : 16}px ${FONT}`;
-      ctx.fillText(`COMBO x${mult}  (${game.combo.count})`, this.w - left, compact ? 49 : 70);
+      ctx.fillText(`连击 ×${mult}（${game.combo.count}）`, this.w - left, compact ? 65 : 90);
     }
     // XP bar along the bottom.
     const frac = p.xp / p.xpNext;
@@ -324,12 +508,12 @@ export class Renderer {
     ctx.textAlign = 'left';
     ctx.fillStyle = '#2ee66b';
     ctx.font = `bold ${compact ? 10 : 12}px ${FONT}`;
-    ctx.fillText(`LEVEL ${p.level}`, left, this.h - (compact ? 25 : 26));
+    ctx.fillText(`等级 ${p.level}`, left, this.h - (compact ? 25 : 26));
     ctx.textAlign = 'right';
     ctx.fillStyle = 'rgba(255,255,255,0.55)';
     if (!compact) {
       ctx.font = `11px ${FONT}`;
-      ctx.fillText('M mute · P pause', this.w - 18, this.h - 26);
+      ctx.fillText('M 静音 · P 暂停', this.w - 18, this.h - 26);
     }
   }
 
@@ -374,7 +558,7 @@ export class Renderer {
     const { ctx } = this;
     const cx = this.w / 2;
     const titleSize = Math.min(76, Math.max(34, this.w * 0.105));
-    const titleY = Math.max(72, this.h * 0.22);
+    const titleY = Math.max(72, this.h * 0.20);
     const subSize = Math.min(17, Math.max(11, this.w * 0.04));
     ctx.textAlign = 'center';
     ctx.save();
@@ -386,19 +570,50 @@ export class Renderer {
     ctx.shadowColor = '#ff3860';
     ctx.fillText('ARENA', cx, titleY + titleSize * 1.03, this.w - 24);
     ctx.restore();
-    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+    const base = titleY + titleSize * 1.78;
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
     ctx.font = `${subSize}px ${FONT}`;
-    ctx.fillText('Survive four waves of neon hostiles, then bring down the WARDEN.', cx, titleY + titleSize * 1.72, this.w - 24);
+    ctx.fillText('霓虹竞技场 — 撑过五波攻势，击落守护者 WARDEN', cx, base, this.w - 24);
     ctx.fillStyle = 'rgba(255,255,255,0.62)';
     ctx.font = `${Math.max(10, subSize - 2)}px ${FONT}`;
-    ctx.fillText('WASD / arrows — move · Mouse — aim · Hold click or Space — fire', cx, titleY + titleSize * 1.72 + 28, this.w - 24);
-    ctx.fillText('Touch: left side move · right side aim and fire', cx, titleY + titleSize * 1.72 + 49, this.w - 24);
-    ctx.fillText('Collect XP shards and upgrades · P pause · M mute', cx, titleY + titleSize * 1.72 + 70, this.w - 24);
+    ctx.fillText('WASD / 方向键移动 · 鼠标瞄准 · 按住左键或空格开火', cx, base + 28, this.w - 24);
+    ctx.fillText('触屏：左半屏移动 · 右半屏瞄准开火 · 拾取道具强化自己', cx, base + 50, this.w - 24);
+    // Difficulty picker: three boxes, the chosen one lit up.
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.font = `bold ${Math.max(11, subSize - 1)}px ${FONT}`;
+    ctx.fillText('— 选择难度 —', cx, base + 84, this.w - 24);
+    game.diffRects = [];
+    const boxW = Math.min(190, (this.w - 64) / 3);
+    const boxH = 68;
+    const gap = 14;
+    const totalW = boxW * 3 + gap * 2;
+    const x0 = cx - totalW / 2;
+    const y0 = base + 98;
+    DIFFICULTY_ORDER.forEach((id, i) => {
+      const def = DIFFICULTIES[id];
+      const x = x0 + i * (boxW + gap);
+      game.diffRects.push({ x, y: y0, w: boxW, h: boxH, id });
+      const selected = game.difficulty === id;
+      ctx.fillStyle = selected ? 'rgba(0, 229, 255, 0.14)' : 'rgba(10, 14, 34, 0.85)';
+      ctx.fillRect(x, y0, boxW, boxH);
+      ctx.strokeStyle = selected ? '#00e5ff' : 'rgba(255,255,255,0.3)';
+      ctx.lineWidth = selected ? 2.4 : 1.2;
+      ctx.strokeRect(x + 1, y0 + 1, boxW - 2, boxH - 2);
+      ctx.fillStyle = selected ? '#e8fbff' : 'rgba(255,255,255,0.8)';
+      ctx.font = `bold 19px ${FONT}`;
+      ctx.fillText(def.name, x + boxW / 2, y0 + 26, boxW - 10);
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.font = `11px ${FONT}`;
+      ctx.fillText(def.desc, x + boxW / 2, y0 + 46, boxW - 10);
+      ctx.fillStyle = selected ? '#00e5ff' : 'rgba(255,255,255,0.4)';
+      ctx.font = `bold 10px ${FONT}`;
+      ctx.fillText(`[ ${i + 1} ]`, x + boxW / 2, y0 + boxH - 6, boxW - 10);
+    });
     const blink = Math.floor(performance.now() / 550) % 2 === 0;
     if (blink) {
       ctx.fillStyle = '#ffe600';
-      ctx.font = `bold ${Math.min(20, Math.max(13, this.w * 0.055))}px ${FONT}`;
-      ctx.fillText('TAP / CLICK OR PRESS ENTER TO START', cx, titleY + titleSize * 1.72 + 104, this.w - 24);
+      ctx.font = `bold ${Math.min(19, Math.max(12, this.w * 0.05))}px ${FONT}`;
+      ctx.fillText('点击或按回车开始', cx, y0 + boxH + 36, this.w - 24);
     }
   }
 
@@ -411,10 +626,10 @@ export class Renderer {
     const compact = this.w < 720 || this.h < 480;
     const headingY = compact ? this.h * 0.12 : this.h * 0.30;
     ctx.font = `900 ${compact ? 25 : 34}px ${FONT}`;
-    ctx.fillText('LEVEL UP', cx, headingY);
+    ctx.fillText('升级！', cx, headingY);
     ctx.fillStyle = 'rgba(255,255,255,0.8)';
     ctx.font = `${compact ? 11 : 15}px ${FONT}`;
-    ctx.fillText('Choose an upgrade — tap a card or press 1 / 2 / 3', cx, headingY + 27, this.w - 24);
+    ctx.fillText('选择一张升级卡 — 点击卡片或按 1 / 2 / 3', cx, headingY + 27, this.w - 24);
     game.cardRects = [];
     const vertical = this.w < 720 || this.h < 480;
     const cardW = vertical ? Math.min(320, this.w - 28) : 248;
@@ -471,21 +686,24 @@ export class Renderer {
     ctx.shadowBlur = 28;
     ctx.fillStyle = '#ffffff';
     ctx.font = `900 52px ${FONT}`;
-    ctx.fillText(won ? 'VICTORY' : 'GAME OVER', cx, this.h * 0.36);
+    ctx.fillText(won ? '胜利！' : '游戏结束', cx, this.h * 0.36);
     ctx.restore();
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.font = `17px ${FONT}`;
-    if (won) ctx.fillText('The WARDEN is down. The arena is yours.', cx, this.h * 0.36 + 36);
-    ctx.fillText(`Final score: ${game.score}`, cx, this.h * 0.36 + (won ? 68 : 44));
     const t = game.finalTime;
     const mm = String(Math.floor(t / 60)).padStart(2, '0');
     const ss = String(Math.floor(t % 60)).padStart(2, '0');
-    ctx.fillText(won ? `Clear time: ${mm}:${ss}` : `Survived to wave ${game.wave} · Time ${mm}:${ss}`, cx, this.h * 0.36 + (won ? 96 : 72));
+    const lines = [];
+    if (won) lines.push('WARDEN 已被击落，竞技场属于你了。');
+    lines.push(`最终分数：${game.score}`);
+    lines.push(`难度：${DIFFICULTIES[game.difficulty].name}`);
+    lines.push(won ? `通关时间：${mm}:${ss}` : `坚持到第 ${game.wave} 波 · 用时 ${mm}:${ss}`);
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.font = `17px ${FONT}`;
+    lines.forEach((line, i) => ctx.fillText(line, cx, this.h * 0.36 + 40 + i * 28));
     const blink = Math.floor(performance.now() / 550) % 2 === 0;
     if (blink) {
       ctx.fillStyle = '#ffe600';
       ctx.font = `bold 18px ${FONT}`;
-      ctx.fillText('PRESS R OR CLICK TO PLAY AGAIN', cx, this.h * 0.36 + 148);
+      ctx.fillText('按 R 或点击重新开始', cx, this.h * 0.36 + 40 + lines.length * 28 + 22);
     }
   }
 }

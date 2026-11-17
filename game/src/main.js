@@ -32,7 +32,7 @@ hooks.onAction = (name) => {
   sfx.init(); // first keypress unlocks WebAudio
   if (name === 'mute') {
     const muted = sfx.toggleMute();
-    status.textContent = muted ? 'Sound muted.' : 'Sound on.';
+    status.textContent = muted ? '已静音。' : '声音已开启。';
     return;
   }
   game.action(name);
@@ -42,7 +42,7 @@ hooks.onClick = (x, y) => {
   game.click(x, y);
 };
 
-status.textContent = 'NEONFALL ARENA. Click or press Enter to start.';
+status.textContent = 'NEONFALL ARENA 霓虹竞技场。选择难度后点击或按回车开始。';
 
 let last = performance.now();
 function frame(now) {
