@@ -22,6 +22,34 @@ export class Game {
 
   announce(text) { if (this.onAnnounce) this.onAnnounce(text); }
 
+  // Keep the arena's contents centred when the viewport changes size.
+  // This also fixes the first-load case where the constructor's default
+  // 1280x720 dimensions differ from the actual device viewport.
+  resize(width, height) {
+    const nextW = Math.max(1, Number(width) || 1);
+    const nextH = Math.max(1, Number(height) || 1);
+    const dx = (nextW - this.w) / 2;
+    const dy = (nextH - this.h) / 2;
+    const shift = (items) => {
+      for (const item of items) {
+        if (Number.isFinite(item.x)) item.x += dx;
+        if (Number.isFinite(item.y)) item.y += dy;
+      }
+    };
+
+    shift([this.player]);
+    shift(this.enemies);
+    shift(this.bullets);
+    shift(this.shards);
+    shift(this.particles);
+    shift(this.texts);
+    this.w = nextW;
+    this.h = nextH;
+    this.player.x = Math.max(this.player.radius, Math.min(this.w - this.player.radius, this.player.x));
+    this.player.y = Math.max(this.player.radius, Math.min(this.h - this.player.radius, this.player.y));
+    this.cardRects = [];
+  }
+
   reset() {
     this.player = createPlayer(this.w / 2, this.h / 2);
     this.player.xpNext = xpForLevel(1);
@@ -256,8 +284,9 @@ export class Game {
     p.aim = Math.atan2(mouse.y - p.y, mouse.x - p.x);
     const mv = moveVector();
     // Keyboard velocity plus knockback impulse, which decays quickly.
-    p.vx = p.vx * Math.exp(-10 * dt) + mv.x * p.speed;
-    p.vy = p.vy * Math.exp(-10 * dt) + mv.y * p.speed;
+    const blend = 1 - Math.exp(-10 * dt);
+    p.vx += (mv.x * p.speed - p.vx) * blend;
+    p.vy += (mv.y * p.speed - p.vy) * blend;
     p.x += p.vx * dt;
     p.y += p.vy * dt;
     p.x = Math.max(p.radius, Math.min(this.w - p.radius, p.x));

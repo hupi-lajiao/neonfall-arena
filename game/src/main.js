@@ -15,16 +15,19 @@ const renderer = new Renderer(canvas);
 game.onAnnounce = (text) => { status.textContent = text; };
 
 function resize() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-  game.w = canvas.width;
-  game.h = canvas.height;
-  renderer.resize(canvas.width, canvas.height);
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+  game.resize(width, height);
+  renderer.resize(width, height, dpr);
 }
 window.addEventListener('resize', resize);
 resize();
 
-initInput(canvas);
+initInput(canvas, () => game.mode);
 hooks.onAction = (name) => {
   sfx.init(); // first keypress unlocks WebAudio
   if (name === 'mute') {

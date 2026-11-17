@@ -3,6 +3,7 @@
 // blits it and draws the live entities, HUD and menu overlays on top.
 
 import { TAU } from './config.js';
+import { touch } from './input.js';
 
 const FONT = '"Segoe UI", system-ui, -apple-system, sans-serif';
 
@@ -13,15 +14,18 @@ export class Renderer {
     this.bg = null;
     this.w = 0;
     this.h = 0;
+    this.dpr = 1;
   }
 
-  resize(w, h) {
+  resize(w, h, dpr = 1) {
     this.w = w;
     this.h = h;
+    this.dpr = dpr;
     this.bg = document.createElement('canvas');
-    this.bg.width = w;
-    this.bg.height = h;
+    this.bg.width = Math.round(w * dpr);
+    this.bg.height = Math.round(h * dpr);
     const c = this.bg.getContext('2d');
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
     // Deep-space base.
     const grad = c.createRadialGradient(w / 2, h * 0.42, 60, w / 2, h * 0.5, Math.max(w, h) * 0.75);
     grad.addColorStop(0, '#0a0d24');
@@ -78,7 +82,7 @@ export class Renderer {
     if (game.shake > 0.2) {
       ctx.translate((Math.random() - 0.5) * game.shake, (Math.random() - 0.5) * game.shake);
     }
-    ctx.drawImage(this.bg, 0, 0);
+    ctx.drawImage(this.bg, 0, 0, w, h);
     this.drawShards(game);
     this.drawEnemies(game);
     this.drawBullets(game);
@@ -87,6 +91,7 @@ export class Renderer {
     this.drawTexts(game);
     ctx.restore();
 
+    this.drawTouchControls();
     this.drawHud(game);
     if (game.mode === 'title') this.drawTitle(game);
     else if (game.mode === 'levelup') this.drawLevelUp(game);
@@ -268,61 +273,96 @@ export class Renderer {
     if (game.mode === 'title') return;
     const { ctx } = this;
     const p = game.player;
+    const compact = this.w < 560;
+    const left = compact ? 12 : 18;
     ctx.textAlign = 'left';
-    ctx.font = `bold 13px ${FONT}`;
+    ctx.font = `bold ${compact ? 11 : 13}px ${FONT}`;
     // HP, top-left.
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(`HP ${Math.ceil(p.hp)} / ${p.maxHp}`, 18, 26);
-    this.bar(18, 32, 220, 13, p.hp / p.maxHp, 'rgba(255,56,96,0.25)', p.hp / p.maxHp > 0.3 ? '#2ee66b' : '#ff3860');
+    ctx.fillText(`HP ${Math.ceil(p.hp)} / ${p.maxHp}`, left, compact ? 18 : 26);
+    const hpWidth = compact ? Math.min(112, this.w * 0.32) : 220;
+    this.bar(left, compact ? 25 : 32, hpWidth, compact ? 8 : 13, p.hp / p.maxHp, 'rgba(255,56,96,0.25)', p.hp / p.maxHp > 0.3 ? '#2ee66b' : '#ff3860');
     if (p.hasShield) {
       ctx.fillStyle = p.shieldReady ? '#7df9ff' : 'rgba(125,249,255,0.4)';
-      ctx.font = `bold 12px ${FONT}`;
-      ctx.fillText(p.shieldReady ? '◈ SHIELD UP' : '◈ SHIELD CHARGING', 18, 62);
+      ctx.font = `bold ${compact ? 9 : 12}px ${FONT}`;
+      ctx.fillText(p.shieldReady ? '◈ SHIELD UP' : '◈ SHIELD CHARGING', left, compact ? 47 : 62);
     }
     // Wave or boss bar, top-center.
     ctx.textAlign = 'center';
     if (game.boss) {
       ctx.fillStyle = '#00e5ff';
-      ctx.font = `bold 15px ${FONT}`;
-      ctx.fillText('— WARDEN —', this.w / 2, 26);
-      this.bar(this.w / 2 - 190, 32, 380, 12, game.boss.hp / game.boss.maxHp, 'rgba(0,229,255,0.15)', '#00e5ff');
+      ctx.font = `bold ${compact ? 11 : 15}px ${FONT}`;
+      ctx.fillText('— WARDEN —', this.w / 2, compact ? 18 : 26);
+      const bossWidth = Math.min(compact ? this.w - 24 : 380, this.w - 24);
+      this.bar(this.w / 2 - bossWidth / 2, compact ? 40 : 32, bossWidth, compact ? 8 : 12, game.boss.hp / game.boss.maxHp, 'rgba(0,229,255,0.15)', '#00e5ff');
     } else if (game.wave > 0) {
       ctx.fillStyle = '#ffffff';
-      ctx.font = `bold 16px ${FONT}`;
-      ctx.fillText(`WAVE ${game.wave} / 5`, this.w / 2, 30);
+      ctx.font = `bold ${compact ? 11 : 16}px ${FONT}`;
+      ctx.fillText(`WAVE ${game.wave} / 5`, this.w / 2, compact ? 18 : 30);
     }
     // Score and time, top-right.
     ctx.textAlign = 'right';
     ctx.fillStyle = '#ffffff';
-    ctx.font = `bold 15px ${FONT}`;
-    ctx.fillText(`SCORE ${game.score}`, this.w - 18, 26);
+    ctx.font = `bold ${compact ? 11 : 15}px ${FONT}`;
+    ctx.fillText(`SCORE ${game.score}`, this.w - left, compact ? 18 : 26);
     const t = game.mode === 'gameover' || game.mode === 'victory' ? game.finalTime : game.time;
     const mm = String(Math.floor(t / 60)).padStart(2, '0');
     const ss = String(Math.floor(t % 60)).padStart(2, '0');
-    ctx.font = `13px ${FONT}`;
+    ctx.font = `${compact ? 10 : 13}px ${FONT}`;
     ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    ctx.fillText(`TIME ${mm}:${ss}`, this.w - 18, 46);
+    ctx.fillText(`TIME ${mm}:${ss}`, this.w - left, compact ? 35 : 46);
     // Combo, under the score.
     if (game.combo.count >= 2) {
       const mult = game.multiplier().toFixed(1);
       ctx.fillStyle = '#ffe600';
-      ctx.font = `bold 16px ${FONT}`;
-      ctx.fillText(`COMBO x${mult}  (${game.combo.count})`, this.w - 18, 70);
+      ctx.font = `bold ${compact ? 10 : 16}px ${FONT}`;
+      ctx.fillText(`COMBO x${mult}  (${game.combo.count})`, this.w - left, compact ? 49 : 70);
     }
     // XP bar along the bottom.
     const frac = p.xp / p.xpNext;
-    this.bar(18, this.h - 24, this.w - 36, 10, frac, 'rgba(46,230,107,0.15)', '#2ee66b');
+    this.bar(left, this.h - 20, this.w - left * 2, compact ? 7 : 10, frac, 'rgba(46,230,107,0.15)', '#2ee66b');
     ctx.textAlign = 'left';
     ctx.fillStyle = '#2ee66b';
-    ctx.font = `bold 12px ${FONT}`;
-    ctx.fillText(`LEVEL ${p.level}`, 18, this.h - 30);
+    ctx.font = `bold ${compact ? 10 : 12}px ${FONT}`;
+    ctx.fillText(`LEVEL ${p.level}`, left, this.h - (compact ? 25 : 26));
     ctx.textAlign = 'right';
     ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.font = `11px ${FONT}`;
-    ctx.fillText('M mute · P pause', this.w - 18, this.h - 30);
+    if (!compact) {
+      ctx.font = `11px ${FONT}`;
+      ctx.fillText('M mute · P pause', this.w - 18, this.h - 26);
+    }
   }
 
   // ---- overlays ---------------------------------------------------------------
+
+  drawTouchControls() {
+    if (!touch.joystickActive && !touch.fire) return;
+    const { ctx } = this;
+    ctx.save();
+    ctx.lineWidth = 2;
+    if (touch.joystickActive) {
+      ctx.globalAlpha = 0.48;
+      ctx.beginPath();
+      ctx.arc(touch.originX, touch.originY, 52, 0, TAU);
+      ctx.fillStyle = 'rgba(125,249,255,0.08)';
+      ctx.fill();
+      ctx.strokeStyle = '#7df9ff';
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(touch.originX + touch.moveX * 52, touch.originY + touch.moveY * 52, 21, 0, TAU);
+      ctx.fillStyle = 'rgba(125,249,255,0.35)';
+      ctx.fill();
+      ctx.stroke();
+    }
+    if (touch.fire) {
+      ctx.globalAlpha = 0.7;
+      ctx.beginPath();
+      ctx.arc(touch.aimX, touch.aimY, 22, 0, TAU);
+      ctx.strokeStyle = '#ffe600';
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 
   dim(alpha = 0.62) {
     const { ctx } = this;
@@ -333,28 +373,32 @@ export class Renderer {
   drawTitle(game) {
     const { ctx } = this;
     const cx = this.w / 2;
+    const titleSize = Math.min(76, Math.max(34, this.w * 0.105));
+    const titleY = Math.max(72, this.h * 0.22);
+    const subSize = Math.min(17, Math.max(11, this.w * 0.04));
     ctx.textAlign = 'center';
     ctx.save();
     ctx.shadowColor = '#00e5ff';
     ctx.shadowBlur = 34;
     ctx.fillStyle = '#e8fbff';
-    ctx.font = `900 76px ${FONT}`;
-    ctx.fillText('NEONFALL', cx, this.h * 0.30);
+    ctx.font = `900 ${titleSize}px ${FONT}`;
+    ctx.fillText('NEONFALL', cx, titleY, this.w - 24);
     ctx.shadowColor = '#ff3860';
-    ctx.fillText('ARENA', cx, this.h * 0.30 + 78);
+    ctx.fillText('ARENA', cx, titleY + titleSize * 1.03, this.w - 24);
     ctx.restore();
     ctx.fillStyle = 'rgba(255,255,255,0.88)';
-    ctx.font = `17px ${FONT}`;
-    ctx.fillText('Survive four waves of neon hostiles, then bring down the WARDEN.', cx, this.h * 0.30 + 128);
+    ctx.font = `${subSize}px ${FONT}`;
+    ctx.fillText('Survive four waves of neon hostiles, then bring down the WARDEN.', cx, titleY + titleSize * 1.72, this.w - 24);
     ctx.fillStyle = 'rgba(255,255,255,0.62)';
-    ctx.font = `15px ${FONT}`;
-    ctx.fillText('WASD / arrows — move      Mouse — aim      Hold click or Space — fire', cx, this.h * 0.30 + 162);
-    ctx.fillText('Collect XP shards, level up, stack upgrades.  P — pause · M — mute', cx, this.h * 0.30 + 186);
+    ctx.font = `${Math.max(10, subSize - 2)}px ${FONT}`;
+    ctx.fillText('WASD / arrows — move · Mouse — aim · Hold click or Space — fire', cx, titleY + titleSize * 1.72 + 28, this.w - 24);
+    ctx.fillText('Touch: left side move · right side aim and fire', cx, titleY + titleSize * 1.72 + 49, this.w - 24);
+    ctx.fillText('Collect XP shards and upgrades · P pause · M mute', cx, titleY + titleSize * 1.72 + 70, this.w - 24);
     const blink = Math.floor(performance.now() / 550) % 2 === 0;
     if (blink) {
       ctx.fillStyle = '#ffe600';
-      ctx.font = `bold 20px ${FONT}`;
-      ctx.fillText('CLICK OR PRESS ENTER TO START', cx, this.h * 0.30 + 244);
+      ctx.font = `bold ${Math.min(20, Math.max(13, this.w * 0.055))}px ${FONT}`;
+      ctx.fillText('TAP / CLICK OR PRESS ENTER TO START', cx, titleY + titleSize * 1.72 + 104, this.w - 24);
     }
   }
 
@@ -364,37 +408,44 @@ export class Renderer {
     const cx = this.w / 2;
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffe600';
-    ctx.font = `900 34px ${FONT}`;
-    ctx.fillText('LEVEL UP', cx, this.h * 0.30);
+    const compact = this.w < 720 || this.h < 480;
+    const headingY = compact ? this.h * 0.12 : this.h * 0.30;
+    ctx.font = `900 ${compact ? 25 : 34}px ${FONT}`;
+    ctx.fillText('LEVEL UP', cx, headingY);
     ctx.fillStyle = 'rgba(255,255,255,0.8)';
-    ctx.font = `15px ${FONT}`;
-    ctx.fillText('Choose an upgrade — click a card or press 1 / 2 / 3', cx, this.h * 0.30 + 30);
-    const cardW = 248, cardH = 148, gap = 26;
-    const totalW = cardW * 3 + gap * 2;
-    const x0 = cx - totalW / 2;
-    const y0 = this.h * 0.30 + 62;
+    ctx.font = `${compact ? 11 : 15}px ${FONT}`;
+    ctx.fillText('Choose an upgrade — tap a card or press 1 / 2 / 3', cx, headingY + 27, this.w - 24);
     game.cardRects = [];
+    const vertical = this.w < 720 || this.h < 480;
+    const cardW = vertical ? Math.min(320, this.w - 28) : 248;
+    const cardH = vertical ? Math.max(56, Math.min(108, (this.h - this.h * 0.23 - 24 - 16) / 3)) : 148;
+    const gap = vertical ? 8 : 26;
+    const y0 = vertical ? this.h * 0.23 : this.h * 0.30 + 62;
+    const totalW = cardW * 3 + gap * 2;
+    const x0 = vertical ? cx - cardW / 2 : cx - totalW / 2;
     game.choices.forEach((choice, i) => {
-      const x = x0 + i * (cardW + gap);
-      game.cardRects.push({ x, y: y0, w: cardW, h: cardH });
+      const x = vertical ? x0 : x0 + i * (cardW + gap);
+      const y = vertical ? y0 + i * (cardH + gap) : y0;
+      game.cardRects.push({ x, y, w: cardW, h: cardH });
       ctx.fillStyle = 'rgba(10, 14, 34, 0.95)';
-      ctx.fillRect(x, y0, cardW, cardH);
+      ctx.fillRect(x, y, cardW, cardH);
       ctx.strokeStyle = choice.color;
       ctx.lineWidth = 2;
-      ctx.strokeRect(x + 1, y0 + 1, cardW - 2, cardH - 2);
+      ctx.strokeRect(x + 1, y + 1, cardW - 2, cardH - 2);
       // Card glyph: a small polygon in the upgrade's colour.
-      this.polygon(x + cardW / 2, y0 + 42, 17, 3 + (i % 4), performance.now() / 900 + i);
+      const glyphY = vertical ? y + cardH * 0.25 : y + 42;
+      this.polygon(x + cardW / 2, glyphY, vertical ? 11 : 17, 3 + (i % 4), performance.now() / 900 + i);
       ctx.fillStyle = choice.color;
       ctx.fill();
       ctx.fillStyle = '#ffffff';
-      ctx.font = `bold 17px ${FONT}`;
-      ctx.fillText(choice.name, x + cardW / 2, y0 + 88);
+      ctx.font = `bold ${vertical ? 14 : 17}px ${FONT}`;
+      ctx.fillText(choice.name, x + cardW / 2, vertical ? y + cardH * 0.57 : y + 88, cardW - 12);
       ctx.fillStyle = 'rgba(255,255,255,0.72)';
-      ctx.font = `13px ${FONT}`;
-      ctx.fillText(choice.desc, x + cardW / 2, y0 + 112);
+      ctx.font = `${vertical ? 10 : 13}px ${FONT}`;
+      ctx.fillText(choice.desc, x + cardW / 2, vertical ? y + cardH * 0.79 : y + 112, cardW - 12);
       ctx.fillStyle = choice.color;
-      ctx.font = `bold 13px ${FONT}`;
-      ctx.fillText(`[ ${i + 1} ]`, x + cardW / 2, y0 + 136);
+      ctx.font = `bold ${vertical ? 10 : 13}px ${FONT}`;
+      ctx.fillText(`[ ${i + 1} ]`, x + cardW / 2, vertical ? y + cardH * 0.94 : y + 136);
     });
   }
 
