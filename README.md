@@ -14,13 +14,20 @@ escalating waves. Survive waves 1–4, level up, stack upgrades — then on wave
 the **WARDEN**, a giant rotating octagon that spawns minions, drops in. Bring
 it down to win. If your hull hits zero, the run is over.
 
+- Pick a **difficulty** on the title screen — 简单 / 正常 / 困难 (Easy /
+  Normal / Hard) — it scales enemy HP, speed, spawn density and damage
+  taken, and sets the score multiplier (x0.8 / x1.0 / x1.5).
 - Enemies drop **XP shards** when destroyed — fly over them to collect.
 - Filling the XP bar **levels you up**: the game pauses and offers 3 upgrade
   cards (fire rate, damage, multishot, speed, max HP, magnet, piercing,
-  shield — 8 in the pool).
+  shield, bouncing shots, crit core, regeneration, XP boost — 12 in the pool).
 - Rapid kills build a **combo multiplier** (up to x3 score) that decays if
   you stop killing.
 - Tanks split into two minis when destroyed. Weavers zig-zag. Chasers hunt.
+  **Shooters** keep their distance and fire back at you; **Bombers** rush in
+  and self-destruct in a blast that also hurts other enemies.
+- Kills can drop **items**: a medkit (+30 HP), a bomb (hits everything on
+  screen), a magnet (pulls in every shard) and a rapid-fire boost.
 
 ## Mobile controls
 
@@ -34,6 +41,7 @@ On a touch screen, drag on the **left half** of the arena to move. Touch and hol
 | Mouse | Aim |
 | Hold left mouse button or Space | Fire |
 | Click / Enter | Start, confirm |
+| 1 / 2 / 3 on the title screen | Pick a difficulty |
 | 1 / 2 / 3 or click | Pick an upgrade card |
 | P or Esc | Pause |
 | R | Restart after game over / victory |
