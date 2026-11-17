@@ -22,6 +22,10 @@ it down to win. If your hull hits zero, the run is over.
   you stop killing.
 - Tanks split into two minis when destroyed. Weavers zig-zag. Chasers hunt.
 
+## Mobile controls
+
+On a touch screen, drag on the **left half** of the arena to move. Touch and hold on the **right half** to aim and fire. You can use two fingers at once. The game adapts its HUD and upgrade cards to narrow screens.
+
 ## Controls
 
 | Input | Action |
@@ -34,6 +38,7 @@ it down to win. If your hull hits zero, the run is over.
 | P or Esc | Pause |
 | R | Restart after game over / victory |
 | M | Mute sound |
+| Touch: left side / right side | Move / aim and fire |
 
 All sound effects are synthesized live with WebAudio oscillators — there are
 no audio files.
@@ -41,7 +46,7 @@ no audio files.
 ## Running it
 
 ```
-node serve.ts        # then open http://localhost:8080
+node serve.ts        # Node.js 22.18+; then open http://localhost:8080
 ```
 
 or open `game/index.html` through any static file server. `node main.ts`

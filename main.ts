@@ -18,11 +18,12 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  rmSync,
   readdirSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { join, relative } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
@@ -177,8 +178,9 @@ function checkScreenshots(shotsDir) {
  */
 function copyFolder(name, sourceDir, outDir, sourceFiles) {
   const target = join(outDir, name);
+  rmSync(target, { recursive: true, force: true });
   mkdirSync(target, { recursive: true });
-  cpSync(sourceDir, target, { recursive: true });
+  cpSync(sourceDir, target, { recursive: true, force: true });
   return { name, files: sourceFiles.length, bytes: totalBytes(sourceFiles) };
 }
 
@@ -209,11 +211,25 @@ function printReport(copies, dossier) {
   console.log(`  dossier.json: ${dossier.bytes} bytes -> ${dossier.path}`);
 }
 
+function containsPath(parent, candidate) {
+  const rel = relative(parent, candidate);
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+function assertSafeOutputDir(outDir, sourceDirs) {
+  for (const sourceDir of sourceDirs) {
+    if (containsPath(outDir, sourceDir) || containsPath(sourceDir, outDir)) {
+      throw new Error(`output directory must not overlap source directory: ${outDir}`);
+    }
+  }
+}
+
 function main() {
   const here = fileURLToPath(new URL('.', import.meta.url));
-  const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
-  const gameDir = join(here, 'game');
-  const shotsDir = join(here, 'screenshots');
+  const outDir = resolve(process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
+  const gameDir = resolve(join(here, 'game'));
+  const shotsDir = resolve(join(here, 'screenshots'));
+  assertSafeOutputDir(outDir, [gameDir, shotsDir]);
 
   // Validate first: a bad entry should fail here, loudly, not at the scorer.
   const gameFiles = checkGameTree(gameDir);
